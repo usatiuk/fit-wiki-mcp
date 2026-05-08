@@ -24,8 +24,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    name: Release actor guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require repository owner
+        if: ${{ github.actor != 'usatiuk' }}
+        run: |
+          echo "Only usatiuk can run this release workflow." >&2
+          exit 1
+
+      - name: Confirm release actor
+        run: |
+          echo "Release actor authorized: ${{ github.actor }}"
+
   prepare:
     name: Prepare release
+    needs: guard
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,7 +95,9 @@ jobs:
 
   publish:
     name: Publish npm package
-    needs: prepare
+    needs:
+      - guard
+      - prepare
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
