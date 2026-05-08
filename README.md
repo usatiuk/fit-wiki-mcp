@@ -105,11 +105,11 @@ Optional env:
 ## Tools
 
 - `fitwiki_search`: live DokuWiki search.
-- `fitwiki_read_page`: read page by id/URL as markdown, raw wiki syntax, or clean HTML.
+- `fitwiki_read_page`: read page by id/URL as markdown, raw wiki syntax, or clean HTML. Use file/PDF tools too when diagrams, scans, or embedded figures matter.
 - `fitwiki_list_index`: list visible index namespaces/pages.
 - `fitwiki_find_files`: find images, PDFs, and downloadable files linked from a page.
-- `fitwiki_get_file`: return same-origin images as MCP image content; PDFs/files as embedded binary resources.
-- `fitwiki_export_pdf`: export a page as PDF.
+- `fitwiki_get_file`: return same-origin raster images as MCP image content; SVGs as rendered PNG image plus original SVG resource; PDFs/files as embedded binary resources. PDF outputs include a visual-inspection hint so agents do not rely only on extracted text for diagrams/scans.
+- `fitwiki_export_pdf`: export a page as PDF when visual layout, formulas, diagrams, or embedded images matter.
 - `fitwiki_auth_check`: verify current auth source.
 
 Binary responses are capped at 10 MB.

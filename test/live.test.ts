@@ -1,7 +1,12 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { load } from "cheerio";
 import { beforeAll, describe, expect, it } from "vitest";
 import { getAuthStatus, loginWithPassword } from "../src/auth.js";
 import { FitWikiClient } from "../src/client.js";
+import { MemoryAuthStore } from "../src/keychain.js";
+import { registerFitWikiTools } from "../src/tools.js";
 
 const BASE_URL = process.env.FITWIKI_TEST_BASE_URL ?? "https://fit-wiki.cz";
 const DML_PAGE = "škola:předměty:bi-dml.21";
@@ -11,6 +16,8 @@ const DML_2025_FORMULA_PROMPT =
   "Následující formuli upravte do ÚDNT/ÚKNT, napište, jestli se jedná o ÚDNT nebo ÚKNT, a určete pro kolik ohodnocení formule platí.";
 const DML_2023_PDF_LINK_TEXT = "31.10.2023 DDα1";
 const DML_2023_PDF_FILENAME = "dml_31_10_2023_dda1.pdf";
+const SPI_MARKOV_SVG_URL =
+  "https://fit-wiki.cz/_media/%C5%A1kola/p%C5%99edm%C4%9Bty/mi-spi/zkouska_19_6_2023_diagram.svg";
 
 describe("FIT Wiki public live smoke", () => {
   it("can read the public registration page", async () => {
@@ -111,6 +118,42 @@ describeAuth("FIT Wiki authenticated live regression", () => {
     expect(pdf.filename).toBe(DML_2023_PDF_FILENAME);
     expect(pdf.mimeType).toBe("application/pdf");
     expect(pdf.size).toBeGreaterThan(100_000);
+  });
+
+  it("renders an authenticated MI-SPI SVG diagram as a supported MCP PNG image", async () => {
+    const server = new McpServer({ name: "live-test", version: "0.0.0" });
+    registerFitWikiTools(server, {
+      store: new MemoryAuthStore({
+        baseUrl: BASE_URL,
+        cookieHeader,
+        createdAt: new Date().toISOString(),
+        cookies: []
+      }),
+      baseUrl: BASE_URL
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const mcpClient = new Client({ name: "live-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), mcpClient.connect(clientTransport)]);
+
+    const result = await mcpClient.callTool({
+      name: "fitwiki_get_file",
+      arguments: { url: SPI_MARKOV_SVG_URL }
+    });
+    const content = result.content as Array<{ type?: string; mimeType?: string; resource?: { mimeType?: string } }>;
+
+    expect(content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "image", mimeType: "image/png" }),
+        expect.objectContaining({
+          type: "resource",
+          resource: expect.objectContaining({ mimeType: "image/svg+xml" })
+        })
+      ])
+    );
+
+    await mcpClient.close();
+    await server.close();
   });
 });
 
