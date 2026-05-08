@@ -21,7 +21,7 @@ npm test
 No manual browser-cookie copying. Login through the CLI:
 
 ```bash
-fitwiki auth login --username YOUR_FIT_WIKI_USERNAME
+npx -y fit-wiki-mcp@latest auth login --username YOUR_FIT_WIKI_USERNAME
 ```
 
 Password is prompted hidden, posted once to FIT Wiki, and never stored. The returned DokuWiki cookie is stored in the OS credential store:
@@ -33,8 +33,8 @@ Password is prompted hidden, posted once to FIT Wiki, and never stored. The retu
 Check or delete local auth:
 
 ```bash
-fitwiki auth status
-fitwiki auth logout
+npx -y fit-wiki-mcp@latest auth status
+npx -y fit-wiki-mcp@latest auth logout
 ```
 
 `FITWIKI_COOKIE` still works as an env override for CI or debugging.
@@ -60,7 +60,21 @@ Without global install:
   "mcpServers": {
     "fit-wiki": {
       "command": "npx",
-      "args": ["-y", "fit-wiki-mcp"]
+      "args": ["-y", "fit-wiki-mcp@latest"]
+    }
+  }
+}
+```
+
+opencode config uses the same local MCP command:
+
+```json
+{
+  "mcp": {
+    "fit-wiki": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "-y", "fit-wiki-mcp@latest"]
     }
   }
 }

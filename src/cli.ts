@@ -3,6 +3,7 @@ import readline from "node:readline";
 import { Writable } from "node:stream";
 import { loginWithPassword, getAuthStatus } from "./auth.js";
 import { DEFAULT_BASE_URL } from "./constants.js";
+import { isEntrypoint } from "./entrypoint.js";
 import { KeychainAuthStore } from "./keychain.js";
 
 type ParsedArgs = {
@@ -117,9 +118,12 @@ async function promptHidden(question: string): Promise<string> {
 }
 
 function printHelp(): void {
-  console.log(`fitwiki auth login [--username USER] [--base-url URL]
-fitwiki auth status [--base-url URL]
-fitwiki auth logout
+  console.log(`fit-wiki-mcp auth login [--username USER] [--base-url URL]
+fit-wiki-mcp auth status [--base-url URL]
+fit-wiki-mcp auth logout
+
+Alias after global install:
+fitwiki auth login [--username USER]
 
 Credentials are stored in the OS credential store:
 - macOS: Keychain
@@ -127,10 +131,9 @@ Credentials are stored in the OS credential store:
 - Linux: Secret Service/libsecret`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint(import.meta.url)) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   });
 }
-

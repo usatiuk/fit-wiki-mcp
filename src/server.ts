@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { main as cliMain } from "./cli.js";
+import { isEntrypoint } from "./entrypoint.js";
 import { KeychainAuthStore } from "./keychain.js";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.js";
 import { registerFitWikiTools } from "./tools.js";
@@ -19,12 +21,38 @@ export function createServer(): McpServer {
   return server;
 }
 
-export async function main(): Promise<void> {
+export async function main(
+  argv = process.argv.slice(2),
+  stdin: Pick<NodeJS.ReadStream, "isTTY"> = process.stdin
+): Promise<void> {
+  if (argv.length > 0) {
+    await cliMain(argv);
+    return;
+  }
+
+  if (stdin.isTTY) {
+    printHelp();
+    return;
+  }
+
   const transport = new StdioServerTransport();
   await createServer().connect(transport);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function printHelp(): void {
+  console.log(`fit-wiki-mcp is an MCP stdio server.
+
+Use it from an MCP client with:
+  npx -y fit-wiki-mcp@latest
+
+Login helper:
+  npx -y fit-wiki-mcp@latest auth login --username USER
+
+Auth status:
+  npx -y fit-wiki-mcp@latest auth status`);
+}
+
+if (isEntrypoint(import.meta.url)) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
