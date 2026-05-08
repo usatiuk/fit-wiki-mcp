@@ -1,5 +1,10 @@
 # FIT Wiki MCP
 
+[![npm version](https://img.shields.io/npm/v/fit-wiki-mcp.svg)](https://www.npmjs.com/package/fit-wiki-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/fit-wiki-mcp.svg)](https://www.npmjs.com/package/fit-wiki-mcp)
+[![CI](https://github.com/usatiuk/fit-wiki-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/usatiuk/fit-wiki-mcp/actions/workflows/ci.yml)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
+
 Model Context Protocol server and CLI for [FIT Wiki](https://fit-wiki.cz/obsah). Public pages work without auth; logged-in pages use DokuWiki cookies stored in the OS credential store.
 
 ## Install
