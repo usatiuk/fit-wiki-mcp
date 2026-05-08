@@ -15,6 +15,10 @@ export class CookieJar {
       this.cookies.delete(cookie.name);
       return;
     }
+    if (cookie.maxAge !== undefined && cookie.maxAge <= 0) {
+      this.cookies.delete(cookie.name);
+      return;
+    }
     if (cookie.value.toLowerCase() === "deleted") {
       this.cookies.delete(cookie.name);
       return;
@@ -121,6 +125,9 @@ export function parseCookieHeader(cookieHeader: string): StoredCookie[] {
 export function stickyCookieExpires(cookie: StoredCookie | undefined): string | undefined {
   if (!cookie) return undefined;
   if (cookie.expires) return new Date(cookie.expires).toISOString();
+  if (cookie.maxAge !== undefined && cookie.maxAge > 0) {
+    return new Date(Date.now() + cookie.maxAge * 1000).toISOString();
+  }
 
   const parts = cookie.value.split("|");
   const sticky = parts[1] === "1";
@@ -128,3 +135,9 @@ export function stickyCookieExpires(cookie: StoredCookie | undefined): string | 
   return new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
 }
 
+export function isPersistentAuthCookie(cookie: StoredCookie | undefined): boolean {
+  if (!cookie) return false;
+  if (cookie.maxAge !== undefined) return cookie.maxAge > 0;
+  if (cookie.expires) return Date.parse(cookie.expires) > Date.now();
+  return cookie.value.split("|")[1] === "1";
+}

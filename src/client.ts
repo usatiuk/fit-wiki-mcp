@@ -113,7 +113,7 @@ export class FitWikiClient {
 
   async findFiles(input: string): Promise<FileEntry[]> {
     const pageId = normalizePageId(input, this.baseUrl);
-    const html = await this.text(pageIdToUrl(pageId, this.baseUrl));
+    const html = await this.text(pageIdToExportUrl(pageId, "xhtml", this.baseUrl));
     const entries = parseFileEntries(html, this.baseUrl);
     entries.push({
       kind: "pdf",
@@ -195,4 +195,3 @@ export class FitWikiClient {
     }
   }
 }
-

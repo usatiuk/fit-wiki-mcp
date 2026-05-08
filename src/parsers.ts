@@ -2,6 +2,9 @@ import { load } from "cheerio";
 import type { FileEntry, IndexEntry, SearchResult } from "./types.js";
 import { assertSameOriginUrl, extensionFromUrl, normalizePageId } from "./url.js";
 
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "svg", "webp"];
+const FILE_EXTENSIONS = ["zip", "txt", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "json", "xml", "tar", "gz"];
+
 export function parseSearchResults(html: string, baseUrl: string, limit: number): SearchResult[] {
   const $ = load(html);
   const results: SearchResult[] = [];
@@ -104,6 +107,8 @@ export function authStateFromHtml(html: string): { loggedIn: boolean; username?:
   const hasLoginForm = $("#dw__login").length > 0 || $("input[name='do'][value='login']").length > 0;
   const logoutLink = $("a[href*='do=logout']").first();
   const userText =
+    normalizeWhitespace($("#dw__user_menu .dropdown-toggle .hidden-lg").first().text()) ||
+    normalizeWhitespace($("#dw__user_menu img[alt]").first().attr("alt") ?? "") ||
     normalizeWhitespace($(".user").first().text()) ||
     normalizeWhitespace($("a[href*='do=profile']").first().text()) ||
     undefined;
@@ -137,17 +142,9 @@ function fileEntryFromUrl(
   if (pathname.includes("/lib/exe/taskrunner.php")) return null;
   if (pathname.includes("/lib/tpl/") && !pathname.includes("/images/logo")) return null;
 
-  const extension = extensionFromUrl(url.toString());
   const media = url.searchParams.get("media");
-  const target = `${pathname} ${media ?? ""}`.toLowerCase();
-  const kind =
-    url.searchParams.get("do") === "export_pdf" || target.endsWith(".pdf")
-      ? "pdf"
-      : source === "img" || /\.(png|jpe?g|gif|svg|webp)$/i.test(target)
-        ? "image"
-        : /\.(zip|txt|docx?|xlsx?|pptx?|csv|json|xml|tar|gz)$/i.test(target)
-          ? "file"
-          : "link";
+  const extension = extensionFromPathLike(media ?? "") ?? extensionFromUrl(url.toString());
+  const kind = fileKindFromExtension(extension, source, url.searchParams.get("do") === "export_pdf");
 
   if (kind === "link") return null;
 
@@ -158,6 +155,22 @@ function fileEntryFromUrl(
     extension,
     source
   };
+}
+
+function extensionFromPathLike(value: string): string | undefined {
+  const match = value.toLowerCase().match(/\.([a-z0-9]+)(?:[?#].*)?$/);
+  return match?.[1];
+}
+
+function fileKindFromExtension(
+  extension: string | undefined,
+  source: "img" | "href",
+  isPdfExport: boolean
+): FileEntry["kind"] {
+  if (isPdfExport || extension === "pdf") return "pdf";
+  if (source === "img" || IMAGE_EXTENSIONS.includes(extension ?? "")) return "image";
+  if (FILE_EXTENSIONS.includes(extension ?? "")) return "file";
+  return "link";
 }
 
 function namespaceOf(pageId: string): string | undefined {
@@ -177,4 +190,3 @@ function dedupeBy<T>(items: T[], keyFn: (item: T) => string): T[] {
   }
   return result;
 }
-

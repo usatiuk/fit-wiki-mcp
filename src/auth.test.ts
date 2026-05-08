@@ -37,6 +37,37 @@ describe("auth login flow", () => {
     expect(result.status.loggedIn).toBe(true);
   });
 
+  it("accepts opaque persistent DokuWiki auth cookies", async () => {
+    const calls: Request[] = [];
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      calls.push(new Request(input, init));
+      if (calls.length === 1) {
+        return htmlResponse("<form id='dw__login'></form>", {
+          "set-cookie": "DokuWiki=session123; path=/; HttpOnly"
+        });
+      }
+      if (init?.method === "POST") {
+        return htmlResponse("", {
+          location: "https://fit-wiki.cz/obsah",
+          "set-cookie": "DWabc=opaque-auth-value; Max-Age=31536000; path=/; HttpOnly"
+        }, 302);
+      }
+      return htmlResponse("<a href='?do=logout'>Odhlásit se</a><a href='?do=profile'>fituser</a>");
+    };
+
+    const result = await loginWithPassword({
+      baseUrl: "https://fit-wiki.cz",
+      username: "fituser",
+      password: "secret",
+      fetchImpl
+    });
+
+    expect(calls).toHaveLength(3);
+    expect(result.storedAuth.cookieHeader).toContain("DWabc=opaque-auth-value");
+    expect(result.storedAuth.expiresAt).toBeDefined();
+    expect(result.status.loggedIn).toBe(true);
+  });
+
   it("rejects login when sticky cookie is missing", async () => {
     const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       if (!init?.method) return htmlResponse("<form id='dw__login'></form>", { "set-cookie": "DokuWiki=session123" });
@@ -66,6 +97,24 @@ describe("auth status", () => {
     expect(status).toMatchObject({ loggedIn: true, username: "fituser" });
   });
 
+  it("prefers the DokuWiki user menu label for the logged-in username", async () => {
+    const status = await getAuthStatus({
+      baseUrl: "https://fit-wiki.cz",
+      cookieHeader: "DWabc=value",
+      source: "provided",
+      fetchImpl: async () =>
+        htmlResponse(`
+          <ul id="dw__user_menu">
+            <a class="dropdown-toggle"><span class="hidden-lg hidden-md hidden-sm">fituser</span></a>
+          </ul>
+          <a href="?do=profile">Upravit profil</a>
+          <a href="?do=logout">Odhlásit se</a>
+        `)
+    });
+
+    expect(status).toMatchObject({ loggedIn: true, username: "fituser" });
+  });
+
   it("reports missing credentials", async () => {
     const status = await getAuthStatus({ source: "none" });
     expect(status.loggedIn).toBe(false);
@@ -89,9 +138,9 @@ describe("credential store abstraction", () => {
   });
 });
 
-function htmlResponse(body: string, headers: HeadersInit = {}): Response {
+function htmlResponse(body: string, headers: HeadersInit = {}, status = 200): Response {
   return new Response(body, {
-    status: 200,
+    status,
     headers: {
       "content-type": "text/html; charset=utf-8",
       ...headers

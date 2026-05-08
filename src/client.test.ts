@@ -36,6 +36,59 @@ describe("FitWikiClient", () => {
     await expect(client.getFile({ url: "https://example.com/file.pdf" })).rejects.toThrow("Only https://fit-wiki.cz URLs");
   });
 
+  it("finds files from the XHTML export so hidden page links are included", async () => {
+    const requestedUrls: string[] = [];
+    const client = new FitWikiClient({
+      baseUrl: "https://fit-wiki.cz",
+      minDelayMs: 0,
+      fetchImpl: async (input) => {
+        requestedUrls.push(input.toString());
+        return new Response(
+          `<div id="dokuwiki__content"><a href="https://fit-wiki.cz/_media/%C5%A1kola/p%C5%99edm%C4%9Bty/dml_31_10_2023_dda1.pdf">31.10.2023 DDα1</a></div>`,
+          { headers: { "content-type": "text/html" } }
+        );
+      }
+    });
+
+    const files = await client.findFiles("škola:předměty:bi-dml.21");
+
+    expect(requestedUrls).toEqual(["https://fit-wiki.cz/_export/xhtml/%C5%A1kola/p%C5%99edm%C4%9Bty/bi-dml.21"]);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "pdf",
+          title: "31.10.2023 DDα1",
+          url: "https://fit-wiki.cz/_media/%C5%A1kola/p%C5%99edm%C4%9Bty/dml_31_10_2023_dda1.pdf"
+        })
+      ])
+    );
+  });
+
+  it("reads hidden XHTML export content instead of the rendered shell", async () => {
+    const requestedUrls: string[] = [];
+    const client = new FitWikiClient({
+      baseUrl: "https://fit-wiki.cz",
+      minDelayMs: 0,
+      fetchImpl: async (input) => {
+        requestedUrls.push(input.toString());
+        return new Response(
+          `<h1>BI-DML.21</h1>
+          <div class="hiddenBody">
+            <a href="https://fit-wiki.cz/%C5%A1kola/p%C5%99edm%C4%9Bty/bi-dml.21/dml_zapoctovka_1_31-10-2025">31.10.2025 pátek 10:00 Tinková</a>
+            <a href="https://fit-wiki.cz/_media/%C5%A1kola/p%C5%99edm%C4%9Bty/dml_31_10_2023_dda1.pdf">31.10.2023 DDα1</a>
+          </div>`,
+          { headers: { "content-type": "text/html" } }
+        );
+      }
+    });
+
+    const page = await client.readPage("škola:předměty:bi-dml.21");
+
+    expect(requestedUrls).toEqual(["https://fit-wiki.cz/_export/xhtml/%C5%A1kola/p%C5%99edm%C4%9Bty/bi-dml.21"]);
+    expect(page.content).toContain("31.10.2025 pátek 10:00 Tinková");
+    expect(page.content).toContain("31.10.2023 DDα1");
+  });
+
   it("returns PDFs as bounded binary data", async () => {
     const client = new FitWikiClient({
       baseUrl: "https://fit-wiki.cz",
@@ -65,4 +118,3 @@ function searchHtml(): string {
       </dl>
     </div>`;
 }
-

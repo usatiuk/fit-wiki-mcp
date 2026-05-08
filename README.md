@@ -16,6 +16,12 @@ npm run build
 npm test
 ```
 
+Optional live regression tests hit FIT Wiki directly. Public smoke tests always run; authenticated DML page/file/PDF checks run when either `FITWIKI_COOKIE` or both credential env vars are set:
+
+```bash
+FITWIKI_TEST_USERNAME=... FITWIKI_TEST_PASSWORD=... npm run test:live
+```
+
 ## Login
 
 No manual browser-cookie copying. Login through the CLI:

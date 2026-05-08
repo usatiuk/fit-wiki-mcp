@@ -1,5 +1,5 @@
 import { DEFAULT_BASE_URL, DEFAULT_USER_AGENT } from "./constants.js";
-import { CookieJar, getSetCookieHeaders, stickyCookieExpires } from "./cookies.js";
+import { CookieJar, getSetCookieHeaders, isPersistentAuthCookie, stickyCookieExpires } from "./cookies.js";
 import { authStateFromHtml } from "./parsers.js";
 import type { AuthStatus, FetchLike, LoginResult, StoredAuth } from "./types.js";
 import { assertSameOriginUrl, makeBaseUrl } from "./url.js";
@@ -51,7 +51,7 @@ export async function loginWithPassword(options: LoginOptions): Promise<LoginRes
 
   const cookieHeader = jar.toHeader(/^(DokuWiki|DW)/i);
   const authCookie = jar.findAuthCookie();
-  if (!authCookie || authCookie.value.split("|")[1] !== "1") {
+  if (!isPersistentAuthCookie(authCookie)) {
     throw new Error("Login failed: FIT Wiki did not return sticky DokuWiki auth cookie");
   }
 
@@ -117,4 +117,3 @@ export async function getAuthStatus(options: AuthStatusOptions): Promise<AuthSta
 function isRedirect(status: number): boolean {
   return status >= 300 && status < 400;
 }
-
