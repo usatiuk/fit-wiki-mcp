@@ -9,6 +9,7 @@ import { EnvFirstAuthProvider } from "./keychain.js";
 import type { AuthStore, DownloadedFile } from "./types.js";
 
 const MCP_RASTER_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const SVG_RENDER_OPTIONS = { background: "white" };
 
 export type RegisterToolsOptions = {
   store: AuthStore;
@@ -153,7 +154,7 @@ function fileResult(file: DownloadedFile): CallToolResult {
 function svgResult(file: DownloadedFile): CallToolResult {
   try {
     const svg = Buffer.from(file.base64, "base64");
-    const png = new Resvg(svg).render().asPng();
+    const png = new Resvg(svg, SVG_RENDER_OPTIONS).render().asPng();
     if (png.byteLength > DEFAULT_MAX_BINARY_BYTES) {
       throw new Error(`Rendered PNG is ${png.byteLength} bytes; max allowed is ${DEFAULT_MAX_BINARY_BYTES}`);
     }

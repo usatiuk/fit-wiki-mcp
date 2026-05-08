@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { MemoryAuthStore } from "./keychain.js";
 import { registerFitWikiTools } from "./tools.js";
@@ -56,6 +57,34 @@ describe("MCP tools", () => {
     });
 
     expect(result.content).toEqual([expect.objectContaining({ type: "image", mimeType: "image/png" })]);
+    await client.close();
+    await server.close();
+  }, 15_000);
+
+  it("renders transparent SVG downloads on an opaque white background", async () => {
+    const server = new McpServer({ name: "test", version: "0.0.0" });
+    registerFitWikiTools(server, {
+      store: new MemoryAuthStore(),
+      fetchImpl: async () =>
+        new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"></svg>`, {
+          headers: { "content-type": "image/svg+xml" }
+        })
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = await client.callTool({
+      name: "fitwiki_get_file",
+      arguments: { url: "https://fit-wiki.cz/_media/transparent.svg" }
+    });
+    const image = result.content[0];
+    if (image.type !== "image") {
+      throw new Error(`Expected image content, got ${image.type}`);
+    }
+
+    expect(firstPngPixel(Buffer.from(image.data, "base64"))).toEqual({ r: 255, g: 255, b: 255, a: 255 });
     await client.close();
     await server.close();
   }, 15_000);
@@ -156,3 +185,76 @@ describe("MCP tools", () => {
     await server.close();
   });
 });
+
+function firstPngPixel(png: Buffer): { r: number; g: number; b: number; a: number } {
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const idatChunks: Buffer[] = [];
+
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.toString("ascii", offset + 4, offset + 8);
+    const data = png.subarray(offset + 8, offset + 8 + length);
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8] ?? 0;
+      colorType = data[9] ?? 0;
+    } else if (type === "IDAT") {
+      idatChunks.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+    offset += length + 12;
+  }
+
+  if (width < 1 || height < 1 || bitDepth !== 8 || (colorType !== 2 && colorType !== 6)) {
+    throw new Error(`Unsupported PNG format: ${width}x${height}, bitDepth=${bitDepth}, colorType=${colorType}`);
+  }
+
+  const channels = colorType === 6 ? 4 : 3;
+  const stride = width * channels;
+  const inflated = inflateSync(Buffer.concat(idatChunks));
+  const row = Buffer.from(inflated.subarray(1, 1 + stride));
+  unfilterPngRow(inflated[0] ?? 0, row, Buffer.alloc(stride), channels);
+
+  return {
+    r: row[0] ?? 0,
+    g: row[1] ?? 0,
+    b: row[2] ?? 0,
+    a: channels === 4 ? (row[3] ?? 0) : 255
+  };
+}
+
+function unfilterPngRow(filter: number, row: Buffer, previous: Buffer, channels: number): void {
+  for (let index = 0; index < row.length; index += 1) {
+    const left = index >= channels ? (row[index - channels] ?? 0) : 0;
+    const up = previous[index] ?? 0;
+    const upLeft = index >= channels ? (previous[index - channels] ?? 0) : 0;
+    if (filter === 1) {
+      row[index] = ((row[index] ?? 0) + left) & 0xff;
+    } else if (filter === 2) {
+      row[index] = ((row[index] ?? 0) + up) & 0xff;
+    } else if (filter === 3) {
+      row[index] = ((row[index] ?? 0) + Math.floor((left + up) / 2)) & 0xff;
+    } else if (filter === 4) {
+      row[index] = ((row[index] ?? 0) + paeth(left, up, upLeft)) & 0xff;
+    } else if (filter !== 0) {
+      throw new Error(`Unsupported PNG filter: ${filter}`);
+    }
+  }
+}
+
+function paeth(left: number, up: number, upLeft: number): number {
+  const p = left + up - upLeft;
+  const pa = Math.abs(p - left);
+  const pb = Math.abs(p - up);
+  const pc = Math.abs(p - upLeft);
+  if (pa <= pb && pa <= pc) {
+    return left;
+  }
+  return pb <= pc ? up : upLeft;
+}
