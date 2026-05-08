@@ -36,7 +36,7 @@ describe("MCP tools", () => {
     await server.close();
   });
 
-  it("renders SVG downloads as PNG images and keeps the original SVG resource", async () => {
+  it("renders SVG downloads as PNG image content only", async () => {
     const server = new McpServer({ name: "test", version: "0.0.0" });
     registerFitWikiTools(server, {
       store: new MemoryAuthStore(),
@@ -55,20 +55,33 @@ describe("MCP tools", () => {
       arguments: { url: "https://fit-wiki.cz/_media/diagram.svg" }
     });
 
-    expect(result.content).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: "image", mimeType: "image/png" }),
-        expect.objectContaining({
-          type: "resource",
-          resource: expect.objectContaining({ mimeType: "image/svg+xml" })
-        })
-      ])
-    );
+    expect(result.content).toEqual([expect.objectContaining({ type: "image", mimeType: "image/png" })]);
     await client.close();
     await server.close();
   }, 15_000);
 
-  it("returns unsupported image subtypes as resources instead of MCP images", async () => {
+  it("returns raster image downloads as image content only", async () => {
+    const server = new McpServer({ name: "test", version: "0.0.0" });
+    registerFitWikiTools(server, {
+      store: new MemoryAuthStore(),
+      fetchImpl: async () => new Response(Buffer.from("fake png"), { headers: { "content-type": "image/png" } })
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = await client.callTool({
+      name: "fitwiki_get_file",
+      arguments: { url: "https://fit-wiki.cz/_media/diagram.png" }
+    });
+
+    expect(result.content).toEqual([expect.objectContaining({ type: "image", mimeType: "image/png" })]);
+    await client.close();
+    await server.close();
+  });
+
+  it("returns unsupported image subtypes as real resource blobs instead of MCP images", async () => {
     const server = new McpServer({ name: "test", version: "0.0.0" });
     registerFitWikiTools(server, {
       store: new MemoryAuthStore(),
@@ -88,7 +101,7 @@ describe("MCP tools", () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: "resource",
-          resource: expect.objectContaining({ mimeType: "image/bmp" })
+          resource: expect.objectContaining({ mimeType: "image/bmp", blob: Buffer.from("BM").toString("base64") })
         })
       ])
     );
@@ -97,7 +110,7 @@ describe("MCP tools", () => {
     await server.close();
   });
 
-  it("adds visual inspection guidance for PDF resources", async () => {
+  it("returns PDF downloads as real resource blobs", async () => {
     const server = new McpServer({ name: "test", version: "0.0.0" });
     registerFitWikiTools(server, {
       store: new MemoryAuthStore(),
@@ -112,15 +125,33 @@ describe("MCP tools", () => {
       name: "fitwiki_get_file",
       arguments: { url: "https://fit-wiki.cz/_media/exam.pdf" }
     });
-    const metadata = JSON.parse(result.content[0].type === "text" ? result.content[0].text : "{}") as {
-      recommendedNextStep?: string;
-      visualInspectionRecommended?: boolean;
-      visualInspectionHint?: string;
-    };
 
-    expect(metadata.visualInspectionRecommended).toBe(true);
-    expect(metadata.recommendedNextStep).toContain("Render/view the PDF pages visually");
-    expect(metadata.visualInspectionHint).toContain("Do not rely only on extracted PDF text");
+    expect(result.content).toEqual([
+      expect.objectContaining({
+        type: "resource",
+        resource: expect.objectContaining({ mimeType: "application/pdf", blob: Buffer.from("%PDF").toString("base64") })
+      })
+    ]);
+    await client.close();
+    await server.close();
+  });
+
+  it("describes PDF visual inspection in the file tool guidance", async () => {
+    const server = new McpServer({ name: "test", version: "0.0.0" });
+    registerFitWikiTools(server, {
+      store: new MemoryAuthStore(),
+      fetchImpl: async () => new Response("ok")
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const tools = await client.listTools();
+    const getFile = tools.tools.find((tool) => tool.name === "fitwiki_get_file");
+
+    expect(getFile?.description).toContain("embedded resources with real MIME type and base64 blob");
+    expect(getFile?.description).toContain("render/view pages visually");
     await client.close();
     await server.close();
   });

@@ -83,7 +83,7 @@ export function registerFitWikiTools(server: McpServer, options: RegisterToolsOp
     {
       title: "Get FIT Wiki File",
       description:
-        "Download a same-origin FIT Wiki media/file URL or media id. Raster images return MCP image content; SVGs return a rendered PNG image plus original SVG resource; PDFs and other binaries return embedded resources. Prefer this over text-only extraction when diagrams/scans matter.",
+        "Download a same-origin FIT Wiki media/file URL or media id. Raster images return MCP image content; SVGs return rendered PNG image content; PDFs and other binaries return embedded resources with real MIME type and base64 blob. For PDFs, render/view pages visually in the client before answering questions that depend on diagrams, scans, formulas, tables, or layout.",
       inputSchema: {
         url: z.string().optional(),
         mediaId: z.string().optional()
@@ -135,81 +135,40 @@ function jsonTextResult(value: unknown): CallToolResult {
 }
 
 function fileResult(file: DownloadedFile): CallToolResult {
-  const metadata = {
-    url: file.url,
-    filename: file.filename,
-    mimeType: file.mimeType,
-    size: file.size,
-    ...visualInspectionMetadata(file)
-  };
-
   if (MCP_RASTER_IMAGE_MIME_TYPES.has(file.mimeType)) {
     return {
-      content: [
-        { type: "text", text: JSON.stringify(metadata, null, 2) },
-        { type: "image", data: file.base64, mimeType: file.mimeType }
-      ],
-      structuredContent: metadata
+      content: [{ type: "image", data: file.base64, mimeType: file.mimeType }]
     };
   }
 
   if (isSvgFile(file)) {
-    return svgResult(file, metadata);
+    return svgResult(file);
   }
 
   return {
-    content: [
-      { type: "text", text: JSON.stringify(metadata, null, 2) },
-      {
-        type: "resource",
-        resource: {
-          uri: file.url,
-          mimeType: file.mimeType,
-          blob: file.base64
-        }
-      }
-    ],
-    structuredContent: metadata
+    content: [resourceBlobContent(file)]
   };
 }
 
-function svgResult(file: DownloadedFile, metadata: Record<string, unknown>): CallToolResult {
-  const originalResource = {
-    type: "resource" as const,
-    resource: {
-      uri: file.url,
-      mimeType: file.mimeType,
-      blob: file.base64
-    }
-  };
-
+function svgResult(file: DownloadedFile): CallToolResult {
   try {
     const svg = Buffer.from(file.base64, "base64");
     const png = new Resvg(svg).render().asPng();
     if (png.byteLength > DEFAULT_MAX_BINARY_BYTES) {
       throw new Error(`Rendered PNG is ${png.byteLength} bytes; max allowed is ${DEFAULT_MAX_BINARY_BYTES}`);
     }
-    const renderedMetadata = {
-      ...metadata,
-      renderedMimeType: "image/png",
-      renderedSize: png.byteLength
-    };
     return {
-      content: [
-        { type: "text", text: JSON.stringify(renderedMetadata, null, 2) },
-        { type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" },
-        originalResource
-      ],
-      structuredContent: renderedMetadata
+      content: [{ type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" }]
     };
   } catch (error) {
-    const fallbackMetadata = {
-      ...metadata,
-      warning: `SVG rasterization failed: ${error instanceof Error ? error.message : String(error)}`
-    };
     return {
-      content: [{ type: "text", text: JSON.stringify(fallbackMetadata, null, 2) }, originalResource],
-      structuredContent: fallbackMetadata
+      content: [
+        {
+          type: "text",
+          text: `SVG rasterization failed for ${file.url}: ${error instanceof Error ? error.message : String(error)}`
+        }
+      ],
+      isError: true
     };
   }
 }
@@ -218,15 +177,13 @@ function isSvgFile(file: DownloadedFile): boolean {
   return file.mimeType === "image/svg+xml" || file.filename.toLowerCase().endsWith(".svg");
 }
 
-function visualInspectionMetadata(file: DownloadedFile): Record<string, unknown> {
-  if (file.mimeType === "application/pdf" || file.filename.toLowerCase().endsWith(".pdf")) {
-    return {
-      visualInspectionRecommended: true,
-      recommendedNextStep:
-        "Render/view the PDF pages visually in the client/agent environment before answering questions that depend on diagrams, scans, formulas, tables, or layout.",
-      visualInspectionHint:
-        "Do not rely only on extracted PDF text for visual content. Embedded figures can extract as meaningless fragments."
-    };
-  }
-  return {};
+function resourceBlobContent(file: DownloadedFile) {
+  return {
+    type: "resource" as const,
+    resource: {
+      uri: file.url,
+      mimeType: file.mimeType,
+      blob: file.base64
+    }
+  };
 }
