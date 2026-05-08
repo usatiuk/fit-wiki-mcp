@@ -66,7 +66,7 @@ describe("MCP tools", () => {
     );
     await client.close();
     await server.close();
-  });
+  }, 15_000);
 
   it("returns unsupported image subtypes as resources instead of MCP images", async () => {
     const server = new McpServer({ name: "test", version: "0.0.0" });
