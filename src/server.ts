@@ -2,12 +2,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { KeychainAuthStore } from "./keychain.js";
+import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.js";
 import { registerFitWikiTools } from "./tools.js";
 
 export function createServer(): McpServer {
   const server = new McpServer({
-    name: "fit-wiki-mcp",
-    version: "0.1.0"
+    name: PACKAGE_NAME,
+    version: PACKAGE_VERSION
   });
 
   registerFitWikiTools(server, {
@@ -29,4 +30,3 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   });
 }
-
