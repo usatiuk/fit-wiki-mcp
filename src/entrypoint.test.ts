@@ -9,7 +9,7 @@ describe("isEntrypoint", () => {
   it("matches npm bin symlinks to the real module path", () => {
     const dir = mkdtempSync(join(tmpdir(), "fit-wiki-entrypoint-"));
     const target = join(dir, "cli.js");
-    const link = join(dir, "fitwiki");
+    const link = join(dir, "fit-wiki-mcp");
 
     writeFileSync(target, "#!/usr/bin/env node\n");
     symlinkSync(target, link);

@@ -25,6 +25,11 @@ export async function main(
   argv = process.argv.slice(2),
   stdin: Pick<NodeJS.ReadStream, "isTTY"> = process.stdin
 ): Promise<void> {
+  if (isVersionArg(argv)) {
+    console.log(`${PACKAGE_NAME} ${PACKAGE_VERSION}`);
+    return;
+  }
+
   if (argv.length > 0) {
     await cliMain(argv);
     return;
@@ -39,8 +44,14 @@ export async function main(
   await createServer().connect(transport);
 }
 
+function isVersionArg(argv: string[]): boolean {
+  return argv.length === 1 && (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version");
+}
+
 function printHelp(): void {
-  console.log(`fit-wiki-mcp is an MCP stdio server.
+  console.log(`${PACKAGE_NAME} ${PACKAGE_VERSION}
+
+fit-wiki-mcp is an MCP stdio server.
 
 Use it from an MCP client with:
   npx -y fit-wiki-mcp@latest
@@ -49,7 +60,10 @@ Login helper:
   npx -y fit-wiki-mcp@latest auth login --username USER
 
 Auth status:
-  npx -y fit-wiki-mcp@latest auth status`);
+  npx -y fit-wiki-mcp@latest auth status
+
+Version:
+  npx -y fit-wiki-mcp@latest --version`);
 }
 
 if (isEntrypoint(import.meta.url)) {

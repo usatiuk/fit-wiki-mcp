@@ -29,7 +29,6 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "fitwiki": "dist/cli.js",
     "fit-wiki-mcp": "dist/server.js"
   },
   "files": [

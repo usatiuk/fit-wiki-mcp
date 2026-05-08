@@ -5,6 +5,7 @@ import { loginWithPassword, getAuthStatus } from "./auth.js";
 import { DEFAULT_BASE_URL } from "./constants.js";
 import { isEntrypoint } from "./entrypoint.js";
 import { KeychainAuthStore } from "./keychain.js";
+import { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info.js";
 
 type ParsedArgs = {
   command?: string;
@@ -14,6 +15,10 @@ type ParsedArgs = {
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const args = parseArgs(argv);
+  if (isVersionRequest(args)) {
+    printVersion();
+    return;
+  }
   if (args.command !== "auth") {
     printHelp();
     process.exitCode = args.command ? 1 : 0;
@@ -90,6 +95,14 @@ function stringFlag(args: ParsedArgs, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function isVersionRequest(args: ParsedArgs): boolean {
+  return args.command === "version" || args.command === "-v" || args.command === "--version" || args.flags.version === true;
+}
+
+function printVersion(): void {
+  console.log(`${PACKAGE_NAME} ${PACKAGE_VERSION}`);
+}
+
 async function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
@@ -118,12 +131,12 @@ async function promptHidden(question: string): Promise<string> {
 }
 
 function printHelp(): void {
-  console.log(`fit-wiki-mcp auth login [--username USER] [--base-url URL]
+  console.log(`${PACKAGE_NAME} ${PACKAGE_VERSION}
+
+fit-wiki-mcp auth login [--username USER] [--base-url URL]
 fit-wiki-mcp auth status [--base-url URL]
 fit-wiki-mcp auth logout
-
-Alias after global install:
-fitwiki auth login [--username USER]
+fit-wiki-mcp --version
 
 Credentials are stored in the OS credential store:
 - macOS: Keychain
