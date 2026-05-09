@@ -103,9 +103,13 @@ export type PdfPageImage = {
 
 const require = createRequire(import.meta.url);
 const pdfjsDistDirectory = path.dirname(require.resolve("pdfjs-dist/package.json"));
-const cMapUrl = path.join(pdfjsDistDirectory, "cmaps", path.sep);
-const standardFontDataUrl = path.join(pdfjsDistDirectory, "standard_fonts", path.sep);
+const cMapUrl = pdfjsFactoryUrl(path.join(pdfjsDistDirectory, "cmaps"));
+const standardFontDataUrl = pdfjsFactoryUrl(path.join(pdfjsDistDirectory, "standard_fonts"));
 const MAX_RENDER_PIXELS = 20_000_000;
+
+export function pdfjsFactoryUrl(directoryPath: string): string {
+  return `${directoryPath.replace(/\\/g, "/").replace(/\/+$/, "")}/`;
+}
 
 export function assertPdfFile(file: DownloadedFile): void {
   const signature = Buffer.from(file.base64.slice(0, 32), "base64").subarray(0, 4).toString("ascii");

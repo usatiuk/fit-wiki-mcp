@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { makeTestPdf } from "../test/helpers/pdf-fixture.js";
-import { pdfInfo, pdfPageImage, pdfPageText } from "./pdf.js";
+import { pdfInfo, pdfjsFactoryUrl, pdfPageImage, pdfPageText } from "./pdf.js";
 import type { DownloadedFile } from "./types.js";
 
 describe("PDF helpers", () => {
+  it("normalizes PDF.js factory directories with forward-slash trailing separators", () => {
+    expect(pdfjsFactoryUrl("D:\\a\\fit-wiki-mcp\\fit-wiki-mcp\\node_modules\\pdfjs-dist\\cmaps\\")).toBe(
+      "D:/a/fit-wiki-mcp/fit-wiki-mcp/node_modules/pdfjs-dist/cmaps/"
+    );
+    expect(pdfjsFactoryUrl("/tmp/fit-wiki-mcp/node_modules/pdfjs-dist/cmaps")).toBe(
+      "/tmp/fit-wiki-mcp/node_modules/pdfjs-dist/cmaps/"
+    );
+  });
+
   it("returns PDF document info from a PDF buffer", async () => {
     const info = await pdfInfo(pdfFile(["Alpha PDF page one", "Beta PDF page two"]));
 
