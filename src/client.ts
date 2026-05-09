@@ -125,14 +125,18 @@ export class FitWikiClient {
     return entries;
   }
 
-  async getFile(input: { url?: string; mediaId?: string }): Promise<DownloadedFile> {
+  fileUrl(input: { url?: string; mediaId?: string }): URL {
     const url = input.mediaId
       ? this.mediaUrl(input.mediaId)
       : input.url
         ? assertSameOriginUrl(input.url, this.baseUrl)
         : undefined;
     if (!url) throw new Error("url or mediaId is required");
-    return this.download(url);
+    return url;
+  }
+
+  async getFile(input: { url?: string; mediaId?: string }): Promise<DownloadedFile> {
+    return this.download(this.fileUrl(input));
   }
 
   async exportPdf(input: string): Promise<DownloadedFile> {

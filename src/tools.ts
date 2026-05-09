@@ -3,9 +3,11 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Resvg } from "@resvg/resvg-js";
 import * as z from "zod/v4";
 import { getAuthStatus } from "./auth.js";
+import { authCacheNamespace, FileCache } from "./cache.js";
 import { DEFAULT_BASE_URL, DEFAULT_MAX_BINARY_BYTES } from "./constants.js";
 import { FitWikiClient } from "./client.js";
 import { EnvFirstAuthProvider } from "./keychain.js";
+import { assertPdfFile, pdfInfo, pdfPageImage, pdfPageText } from "./pdf.js";
 import type { AuthStore, DownloadedFile } from "./types.js";
 
 const MCP_RASTER_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
@@ -16,6 +18,7 @@ export type RegisterToolsOptions = {
   baseUrl?: string;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
+  fileCache?: FileCache;
 };
 
 export function registerFitWikiTools(server: McpServer, options: RegisterToolsOptions): void {
@@ -26,6 +29,7 @@ export function registerFitWikiTools(server: McpServer, options: RegisterToolsOp
     authProvider,
     fetchImpl: options.fetchImpl
   });
+  const fileCache = options.fileCache ?? new FileCache({ env: options.env });
 
   server.registerTool(
     "fitwiki_search",
@@ -94,6 +98,58 @@ export function registerFitWikiTools(server: McpServer, options: RegisterToolsOp
   );
 
   server.registerTool(
+    "fitwiki_pdf_info",
+    {
+      title: "Get FIT Wiki PDF Info",
+      description:
+        "Inspect a same-origin FIT Wiki PDF URL or media id. Returns page count, page labels, outline, and basic document metadata. Use before rendering pages when unsure which page matters.",
+      inputSchema: {
+        url: z.string().optional(),
+        mediaId: z.string().optional()
+      }
+    },
+    async ({ url, mediaId }) =>
+      pdfToolResult(async () => jsonResult(await pdfInfo(await cachedPdfFile(client, authProvider, fileCache, { url, mediaId }))))
+  );
+
+  server.registerTool(
+    "fitwiki_pdf_page_text",
+    {
+      title: "Read FIT Wiki PDF Page Text",
+      description:
+        "Extract text from one page of a same-origin FIT Wiki PDF URL or media id. Text extraction can miss diagrams, formulas, scans, and layout; use pdf_page_image for visual inspection.",
+      inputSchema: {
+        url: z.string().optional(),
+        mediaId: z.string().optional(),
+        page: z.number().int().min(1)
+      }
+    },
+    async ({ url, mediaId, page }) =>
+      pdfToolResult(async () =>
+        jsonTextResult(await pdfPageText(await cachedPdfFile(client, authProvider, fileCache, { url, mediaId }), page))
+      )
+  );
+
+  server.registerTool(
+    "fitwiki_pdf_page_image",
+    {
+      title: "Render FIT Wiki PDF Page Image",
+      description:
+        "Render one page of a same-origin FIT Wiki PDF URL or media id as MCP image/png. Prefer this for diagrams, scans, formulas, tables, and layout-dependent answers.",
+      inputSchema: {
+        url: z.string().optional(),
+        mediaId: z.string().optional(),
+        page: z.number().int().min(1),
+        scale: z.number().min(0.25).max(3).default(1.5)
+      }
+    },
+    async ({ url, mediaId, page, scale }) =>
+      pdfToolResult(async () =>
+        pdfImageResult(await pdfPageImage(await cachedPdfFile(client, authProvider, fileCache, { url, mediaId }), page, scale))
+      )
+  );
+
+  server.registerTool(
     "fitwiki_export_pdf",
     {
       title: "Export FIT Wiki Page PDF",
@@ -121,6 +177,21 @@ export function registerFitWikiTools(server: McpServer, options: RegisterToolsOp
   );
 }
 
+async function cachedPdfFile(
+  client: FitWikiClient,
+  authProvider: EnvFirstAuthProvider,
+  fileCache: FileCache,
+  input: { url?: string; mediaId?: string }
+): Promise<DownloadedFile> {
+  const fileUrl = client.fileUrl(input).toString();
+  const [source, cookieHeader] = await Promise.all([authProvider.source(), authProvider.getCookieHeader()]);
+  return fileCache.getOrLoad(["pdf", fileUrl, authCacheNamespace(source, cookieHeader)], async () => {
+    const file = await client.getFile(input);
+    assertPdfFile(file);
+    return file;
+  });
+}
+
 function jsonResult(value: unknown): CallToolResult {
   return {
     content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
@@ -133,6 +204,37 @@ function jsonTextResult(value: unknown): CallToolResult {
     content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
     structuredContent: value as Record<string, unknown>
   };
+}
+
+function pdfImageResult(value: {
+  page: number;
+  totalPages: number;
+  width: number;
+  height: number;
+  mimeType: "image/png";
+  base64: string;
+}): CallToolResult {
+  return {
+    content: [{ type: "image", data: value.base64, mimeType: value.mimeType }],
+    structuredContent: {
+      page: value.page,
+      totalPages: value.totalPages,
+      width: value.width,
+      height: value.height,
+      mimeType: value.mimeType
+    }
+  };
+}
+
+async function pdfToolResult(work: () => Promise<CallToolResult>): Promise<CallToolResult> {
+  try {
+    return await work();
+  } catch (error) {
+    return {
+      content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+      isError: true
+    };
+  }
 }
 
 function fileResult(file: DownloadedFile): CallToolResult {

@@ -1,8 +1,13 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { makeTestPdf } from "../test/helpers/pdf-fixture.js";
+import { FileCache } from "./cache.js";
 import { MemoryAuthStore } from "./keychain.js";
 import { registerFitWikiTools } from "./tools.js";
 
@@ -165,6 +170,117 @@ describe("MCP tools", () => {
     await server.close();
   });
 
+  it("returns PDF info, page text, and page images while reusing the file cache", async () => {
+    const cacheDir = await mkdtemp(join(tmpdir(), "fit-wiki-tools-cache-"));
+    const pdf = makeTestPdf(["Alpha PDF page one", "Beta PDF page two"]);
+    let fetchCount = 0;
+    const server = new McpServer({ name: "test", version: "0.0.0" });
+    registerFitWikiTools(server, {
+      store: new MemoryAuthStore(),
+      fileCache: new FileCache({ cacheDir, ttlMs: 60_000, maxBytes: 1_000_000 }),
+      fetchImpl: async () => {
+        fetchCount += 1;
+        return new Response(pdf, { headers: { "content-type": "application/pdf" } });
+      }
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const info = await client.callTool({
+        name: "fitwiki_pdf_info",
+        arguments: { url: "https://fit-wiki.cz/_media/exam.pdf" }
+      });
+      expect(info.structuredContent).toMatchObject({ totalPages: 2 });
+
+      const text = await client.callTool({
+        name: "fitwiki_pdf_page_text",
+        arguments: { url: "https://fit-wiki.cz/_media/exam.pdf", page: 2 }
+      });
+      expect(text.structuredContent).toMatchObject({ page: 2, totalPages: 2, text: "Beta PDF page two" });
+
+      const image = await client.callTool({
+        name: "fitwiki_pdf_page_image",
+        arguments: { url: "https://fit-wiki.cz/_media/exam.pdf", page: 1, scale: 1 }
+      });
+      expect(image.content).toEqual([expect.objectContaining({ type: "image", mimeType: "image/png" })]);
+      expect(image.structuredContent).toMatchObject({ page: 1, totalPages: 2, mimeType: "image/png" });
+      expect(fetchCount).toBe(1);
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes stored auth into PDF tool fetches", async () => {
+    const seenCookies: string[] = [];
+    const server = new McpServer({ name: "test", version: "0.0.0" });
+    registerFitWikiTools(server, {
+      store: new MemoryAuthStore({
+        baseUrl: "https://fit-wiki.cz",
+        cookieHeader: "DWabc=auth",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        cookies: []
+      }),
+      fileCache: new FileCache({ disabled: true }),
+      fetchImpl: async (_input, init) => {
+        seenCookies.push(new Headers(init?.headers).get("cookie") ?? "");
+        return new Response(makeTestPdf(["Alpha PDF page one"]), { headers: { "content-type": "application/pdf" } });
+      }
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = await client.callTool({
+      name: "fitwiki_pdf_page_text",
+      arguments: { url: "https://fit-wiki.cz/_media/exam.pdf", page: 1 }
+    });
+
+    expect(result.structuredContent).toMatchObject({ text: "Alpha PDF page one" });
+    expect(seenCookies).toEqual(["DWabc=auth"]);
+    await client.close();
+    await server.close();
+  });
+
+  it("returns tool errors for invalid PDF page requests and non-PDF inputs", async () => {
+    const server = new McpServer({ name: "test", version: "0.0.0" });
+    let response = new Response(makeTestPdf(["Alpha PDF page one"]), { headers: { "content-type": "application/pdf" } });
+    registerFitWikiTools(server, {
+      store: new MemoryAuthStore(),
+      fileCache: new FileCache({ disabled: true }),
+      fetchImpl: async () => response
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const invalidPage = await client.callTool({
+      name: "fitwiki_pdf_page_text",
+      arguments: { url: "https://fit-wiki.cz/_media/exam.pdf", page: 2 }
+    });
+    expect(invalidPage.isError).toBe(true);
+    expect(invalidPage.content[0]).toMatchObject({
+      type: "text",
+      text: "PDF page 2 is out of range for a 1-page document"
+    });
+
+    response = new Response("not pdf", { headers: { "content-type": "text/plain" } });
+    const nonPdf = await client.callTool({
+      name: "fitwiki_pdf_info",
+      arguments: { url: "https://fit-wiki.cz/_media/not-pdf.txt" }
+    });
+    expect(nonPdf.isError).toBe(true);
+    expect(nonPdf.content[0]).toMatchObject({ type: "text", text: "Expected PDF file, got text/plain" });
+    await client.close();
+    await server.close();
+  });
+
   it("describes PDF visual inspection in the file tool guidance", async () => {
     const server = new McpServer({ name: "test", version: "0.0.0" });
     registerFitWikiTools(server, {
@@ -178,9 +294,12 @@ describe("MCP tools", () => {
 
     const tools = await client.listTools();
     const getFile = tools.tools.find((tool) => tool.name === "fitwiki_get_file");
+    const pdfPageImage = tools.tools.find((tool) => tool.name === "fitwiki_pdf_page_image");
 
     expect(getFile?.description).toContain("embedded resources with real MIME type and base64 blob");
     expect(getFile?.description).toContain("render/view pages visually");
+    expect(pdfPageImage?.description).toContain("Render one page");
+    expect(pdfPageImage?.description).toContain("diagrams, scans, formulas, tables");
     await client.close();
     await server.close();
   });

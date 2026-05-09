@@ -5,8 +5,9 @@ import { load } from "cheerio";
 import { beforeAll, describe, expect, it } from "vitest";
 import { getAuthStatus, loginWithPassword } from "../src/auth.js";
 import { FitWikiClient } from "../src/client.js";
-import { MemoryAuthStore } from "../src/keychain.js";
+import { KeychainAuthStore, MemoryAuthStore } from "../src/keychain.js";
 import { registerFitWikiTools } from "../src/tools.js";
+import type { StoredAuth } from "../src/types.js";
 
 const BASE_URL = process.env.FITWIKI_TEST_BASE_URL ?? "https://fit-wiki.cz";
 const DML_PAGE = "škola:předměty:bi-dml.21";
@@ -16,6 +17,7 @@ const DML_2025_FORMULA_PROMPT =
   "Následující formuli upravte do ÚDNT/ÚKNT, napište, jestli se jedná o ÚDNT nebo ÚKNT, a určete pro kolik ohodnocení formule platí.";
 const DML_2023_PDF_LINK_TEXT = "31.10.2023 DDα1";
 const DML_2023_PDF_FILENAME = "dml_31_10_2023_dda1.pdf";
+const SPI_VSM_PDF_MEDIA_ID = "škola:předměty:mi-spi:vsm_zkouska_16062021.pdf";
 const SPI_MARKOV_SVG_URL =
   "https://fit-wiki.cz/_media/%C5%A1kola/p%C5%99edm%C4%9Bty/mi-spi/zkouska_19_6_2023_diagram.svg";
 
@@ -40,10 +42,13 @@ describe("FIT Wiki public live smoke", () => {
   });
 });
 
-const hasAuthEnv = Boolean(
+const hasCredentialEnv = Boolean(process.env.FITWIKI_TEST_USERNAME && process.env.FITWIKI_TEST_PASSWORD);
+const hasAuthEnv = Boolean(process.env.FITWIKI_COOKIE || hasCredentialEnv);
+const keychainAuth = hasAuthEnv ? null : await readKeychainAuth();
+const hasConfiguredAuth = Boolean(
   process.env.FITWIKI_COOKIE || (process.env.FITWIKI_TEST_USERNAME && process.env.FITWIKI_TEST_PASSWORD)
 );
-const describeAuth = hasAuthEnv ? describe : describe.skip;
+const describeAuth = hasConfiguredAuth || keychainAuth ? describe : describe.skip;
 
 describeAuth("FIT Wiki authenticated live regression", () => {
   let cookieHeader = "";
@@ -51,6 +56,12 @@ describeAuth("FIT Wiki authenticated live regression", () => {
 
   beforeAll(async () => {
     cookieHeader = process.env.FITWIKI_COOKIE ?? "";
+
+    if (!cookieHeader) {
+      if (keychainAuth?.cookieHeader) {
+        cookieHeader = keychainAuth.cookieHeader;
+      }
+    }
 
     if (!cookieHeader) {
       const login = await loginWithPassword({
@@ -144,13 +155,48 @@ describeAuth("FIT Wiki authenticated live regression", () => {
 
     expect(content).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "image", mimeType: "image/png" }),
-        expect.objectContaining({
-          type: "resource",
-          resource: expect.objectContaining({ mimeType: "image/svg+xml" })
-        })
+        expect.objectContaining({ type: "image", mimeType: "image/png" })
       ])
     );
+    expect(content.some((item) => item.type === "resource")).toBe(false);
+
+    await mcpClient.close();
+    await server.close();
+  });
+
+  it("reads and renders an authenticated MI-SPI PDF through PDF tools", async () => {
+    const server = new McpServer({ name: "live-test", version: "0.0.0" });
+    registerFitWikiTools(server, {
+      store: new MemoryAuthStore({
+        baseUrl: BASE_URL,
+        cookieHeader,
+        createdAt: new Date().toISOString(),
+        cookies: []
+      }),
+      baseUrl: BASE_URL
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const mcpClient = new Client({ name: "live-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), mcpClient.connect(clientTransport)]);
+
+    const info = await mcpClient.callTool({
+      name: "fitwiki_pdf_info",
+      arguments: { mediaId: SPI_VSM_PDF_MEDIA_ID }
+    });
+    expect(info.structuredContent).toMatchObject({ totalPages: 6 });
+
+    const text = await mcpClient.callTool({
+      name: "fitwiki_pdf_page_text",
+      arguments: { mediaId: SPI_VSM_PDF_MEDIA_ID, page: 1 }
+    });
+    expect(String((text.structuredContent as { text?: string }).text ?? "").length).toBeGreaterThan(20);
+
+    const image = await mcpClient.callTool({
+      name: "fitwiki_pdf_page_image",
+      arguments: { mediaId: SPI_VSM_PDF_MEDIA_ID, page: 1, scale: 1 }
+    });
+    expect(image.content).toEqual([expect.objectContaining({ type: "image", mimeType: "image/png" })]);
 
     await mcpClient.close();
     await server.close();
@@ -171,4 +217,12 @@ function requiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+async function readKeychainAuth(): Promise<StoredAuth | null> {
+  try {
+    return await new KeychainAuthStore().get();
+  } catch {
+    return null;
+  }
 }

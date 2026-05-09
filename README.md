@@ -21,7 +21,9 @@ npm run build
 npm test
 ```
 
-Optional live regression tests hit FIT Wiki directly. Public smoke tests always run; authenticated DML page/file/PDF checks run when either `FITWIKI_COOKIE` or both credential env vars are set:
+Requires Node.js 22.13 or newer. PDF page rendering uses PDF.js with the native `@napi-rs/canvas` backend pulled transitively by `pdfjs-dist`.
+
+Optional live regression tests hit FIT Wiki directly. Public smoke tests always run; authenticated DML page/file/PDF checks run when `FITWIKI_COOKIE`, both credential env vars, or a local keychain login is available:
 
 ```bash
 FITWIKI_TEST_USERNAME=... FITWIKI_TEST_PASSWORD=... npm run test:live
@@ -108,33 +110,16 @@ Optional env:
 - `fitwiki_read_page`: read page by id/URL as markdown, raw wiki syntax, or clean HTML. Use file/PDF tools too when diagrams, scans, or embedded figures matter.
 - `fitwiki_list_index`: list visible index namespaces/pages.
 - `fitwiki_find_files`: find images, PDFs, and downloadable files linked from a page.
-- `fitwiki_get_file`: return same-origin raster images as MCP image content; SVGs as rendered PNG image plus original SVG resource; PDFs/files as embedded binary resources. PDF outputs include a visual-inspection hint so agents do not rely only on extracted text for diagrams/scans.
+- `fitwiki_get_file`: download same-origin media/files. Raster images return MCP image content, SVGs return rendered PNG image content, PDFs/files return embedded binary resource blobs.
+- `fitwiki_pdf_info`: inspect a PDF's page count, labels, outline, and metadata.
+- `fitwiki_pdf_page_text`: extract text from one PDF page.
+- `fitwiki_pdf_page_image`: render one PDF page as MCP `image/png`; prefer this for diagrams, scans, formulas, tables, and layout-dependent answers.
 - `fitwiki_export_pdf`: export a page as PDF when visual layout, formulas, diagrams, or embedded images matter.
 - `fitwiki_auth_check`: verify current auth source.
 
 Binary responses are capped at 10 MB.
 
-## Maintainer Release Flow
-
-The package is intended to publish through npm Trusted Publishing with GitHub Actions OIDC.
-
-First publish must be bootstrapped manually because `npm trust` requires the package to already exist:
-
-```bash
-npm login
-npm publish
-npm install -g npm@^11.10.0
-npm trust github fit-wiki-mcp --repo usatiuk/fit-wiki-mcp --file release.yml
-```
-
-After that, release from GitHub:
-
-1. Open Actions -> Release.
-2. Run workflow.
-3. Choose `patch`, `minor`, `major`, or `prerelease`.
-4. Leave `dry_run` off for a real release.
-
-The release workflow bumps `package.json`, pushes `vX.Y.Z`, publishes to npm, and creates a GitHub Release.
+PDF tools cache downloaded files under the OS temp directory by default for 1 hour, capped at 50 MB. Override with `FITWIKI_CACHE_DIR`, `FITWIKI_CACHE_TTL_MS`, `FITWIKI_CACHE_MAX_BYTES`, or disable with `FITWIKI_CACHE_DISABLED=1`.
 
 ## License
 
